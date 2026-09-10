@@ -12,12 +12,26 @@ pub fn run() {
             tauri_plugin_sql::Builder::default()
                 .add_migrations(
                     "sqlite:notes.db",
-                    vec![tauri_plugin_sql::Migration {
-                        version: 1,
-                        description: "create notes table",
-                        sql: include_str!("../migrations/001_create_notes.sql"),
-                        kind: tauri_plugin_sql::MigrationKind::Up,
-                    }],
+                    vec![
+                        tauri_plugin_sql::Migration {
+                            version: 1,
+                            description: "create notes table",
+                            sql: include_str!("../migrations/001_create_notes.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 2,
+                            description: "create tags tables",
+                            sql: include_str!("../migrations/002_create_tags.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                        tauri_plugin_sql::Migration {
+                            version: 3,
+                            description: "create notes full text index",
+                            sql: include_str!("../migrations/003_create_notes_fts.sql"),
+                            kind: tauri_plugin_sql::MigrationKind::Up,
+                        },
+                    ],
                 )
                 .build(),
         )

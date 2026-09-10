@@ -5,6 +5,8 @@ import {
   createNote as createNoteInDatabase,
   deleteNote as deleteNoteFromDatabase,
   listNotes,
+  migrateLegacyLocalStorage,
+  searchNotes,
   updateNote,
   type Note,
 } from "./noteRepository";
@@ -26,6 +28,7 @@ function createNewNote(): Note {
     title: "Untitled",
     content: EMPTY_NOTE,
     updatedAt: new Date().toISOString(),
+    tags: [],
   };
 }
 
@@ -57,6 +60,9 @@ function App() {
   const [currentNoteId, setCurrentNoteId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
+  const [tagDraft, setTagDraft] = useState("");
+  const [filteredNotes, setFilteredNotes] = useState<Note[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -67,6 +73,14 @@ function App() {
         if (savedNotes.length > 0) {
           setNotes(savedNotes);
           setCurrentNoteId(savedNotes[0].id);
+          return;
+        }
+
+        await migrateLegacyLocalStorage(savedNotes);
+        const migratedNotes = await listNotes();
+        if (migratedNotes.length > 0) {
+          setNotes(migratedNotes);
+          setCurrentNoteId(migratedNotes[0].id);
           return;
         }
 
@@ -91,14 +105,37 @@ function App() {
     [notes, currentNoteId],
   );
 
-  const filteredNotes = useMemo(() => {
-    const text = query.trim().toLowerCase();
-    if (!text) return notes;
-    return notes.filter((note) => {
-      const haystack = `${note.title} ${note.content}`.toLowerCase();
-      return haystack.includes(text);
-    });
-  }, [notes, query]);
+  useEffect(() => {
+    setTagDraft(currentNote?.tags.join(", ") ?? "");
+  }, [currentNoteId, currentNote?.tags]);
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      searchNotes(query)
+        .then((results) => {
+          if (active) setFilteredNotes(results);
+        })
+        .catch(() => {
+          if (active) setError("Unable to search notes.");
+        });
+    }, 150);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [query, notes]);
+
+  const saveNote = (nextNote: Note) => {
+    setSaveState("saving");
+    updateNote(nextNote)
+      .then(() => setSaveState("saved"))
+      .catch(() => {
+        setSaveState("error");
+        setError("Unable to save the note.");
+      });
+  };
 
   const saveCurrentNote = (nextContent: string) => {
     if (!currentNote) return;
@@ -113,7 +150,21 @@ function App() {
     setNotes((prevNotes) =>
       prevNotes.map((note) => (note.id === nextNote.id ? nextNote : note)),
     );
-    updateNote(nextNote).catch(() => setError("Unable to save the note."));
+    saveNote(nextNote);
+  };
+
+  const saveCurrentTags = (value: string) => {
+    if (!currentNote) return;
+    setTagDraft(value);
+    const nextNote = {
+      ...currentNote,
+      tags: value.split(",").map((tag) => tag.trim()).filter(Boolean),
+      updatedAt: new Date().toISOString(),
+    };
+    setNotes((prevNotes) =>
+      prevNotes.map((note) => (note.id === nextNote.id ? nextNote : note)),
+    );
+    saveNote(nextNote);
   };
 
   const createNote = () => {
@@ -200,6 +251,23 @@ function App() {
               <button className="primary" onClick={() => saveCurrentNote(currentNote.content)}>
                 Save
               </button>
+            </div>
+
+            <div className="note-controls">
+              <label>
+                <span className="meta-label">Tags</span>
+                <input
+                  className="tag-input"
+                  value={tagDraft}
+                  onChange={(e) => saveCurrentTags(e.target.value)}
+                  placeholder="ideas, project"
+                />
+              </label>
+              <span className={`save-status ${saveState}`}>
+                {saveState === "saving" && "Saving..."}
+                {saveState === "saved" && "Saved"}
+                {saveState === "error" && "Save failed"}
+              </span>
             </div>
 
             <div className="split-layout">
